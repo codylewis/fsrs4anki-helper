@@ -8,6 +8,17 @@ from ..i18n import t
 from ..utils import *
 
 
+SAFE_RETENTION_DEFICIT = 0.13
+
+
+def get_current_retention(elapsed, stability, decay):
+    return power_forgetting_curve(max(elapsed, 0), stability, -decay)
+
+
+def get_retention_deficit(current_r, desired_r, decay):
+    return 1 - (current_r ** (-1 / decay) - 1) / (desired_r ** (-1 / decay) - 1)
+
+
 def get_due_per_day_breakdown(did, num_days=7):
     DM = DeckManager(mw.col)
     if did is not None:
@@ -35,9 +46,9 @@ def get_due_per_day_breakdown(did, num_days=7):
     """)
     safe_counts = {}
     for day, stability, elapsed, desired_r, decay in rows:
-        current_r = power_forgetting_curve(max(elapsed, 0), stability, -decay)
-        deficit = 1 - (current_r ** (-1 / decay) - 1) / (desired_r ** (-1 / decay) - 1)
-        if deficit < 0.13:
+        current_r = get_current_retention(elapsed, stability, decay)
+        deficit = get_retention_deficit(current_r, desired_r, decay)
+        if deficit < SAFE_RETENTION_DEFICIT:
             safe_counts[day] = safe_counts.get(day, 0) + 1
 
     lines = []
@@ -153,7 +164,7 @@ def advance(did):
         lambda x: (
             x
             + [
-                power_forgetting_curve(max(x[4], 0), x[3], -x[6]),
+                get_current_retention(x[4], x[3], x[6]),
             ]
         ),
         cards,
@@ -164,16 +175,14 @@ def advance(did):
     cards = sorted(
         cards,
         key=lambda x: (
-            1 - (x[7] ** (-1 / x[6]) - 1) / (x[5] ** (-1 / x[6]) - 1),
+            get_retention_deficit(x[7], x[5], x[6]),
             -x[3],
         ),
     )
     safe_cnt = len(
         list(
             filter(
-                lambda x: (
-                    1 - (x[7] ** (-1 / x[6]) - 1) / (x[5] ** (-1 / x[6]) - 1) < 0.13
-                ),
+                lambda x: get_retention_deficit(x[7], x[5], x[6]) < SAFE_RETENTION_DEFICIT,
                 cards,
             )
         )
