@@ -100,3 +100,9 @@ When enabled, shows debug notifications during sibling dispersion operations. Th
 Default: `false`
 
 Internal flag used to track whether the user has rated the add-on. This is automatically managed by the add-on and should not be modified manually.
+
+### `advance_days_filter_enabled`
+
+Default: `false`
+
+When enabled, Advance will first ask for a number of days and only advance cards due within that many days (enter `0` for no limit), before asking how many cards to advance. When disabled (the default), Advance behaves as before and skips straight to asking how many cards to advance.

@@ -124,6 +124,16 @@ menu_reschedule_set_due_date = checkable(
 )
 
 
+def set_advance_ask_days_limit(checked, _):
+    config.advance_days_filter_enabled = checked
+
+
+menu_advance_ask_days_limit = checkable(
+    title=t("advance-ask-days-limit"),
+    on_click=set_advance_ask_days_limit,
+)
+
+
 def set_display_memory_state(checked, _):
     config.display_memory_state = checked
 
@@ -270,6 +280,7 @@ menu_for_helper = mw.form.menuTools.addMenu(t("fsrs-helper"))
 menu_for_helper.addAction(menu_auto_reschedule_after_sync)
 menu_for_helper.addAction(menu_auto_disperse_after_sync)
 menu_for_helper.addAction(menu_reschedule_set_due_date)
+menu_for_helper.addAction(menu_advance_ask_days_limit)
 menu_for_helper.addAction(menu_auto_disperse)
 menu_for_helper.addAction(menu_display_memory_state)
 menu_for_helper.addAction(menu_show_steps_stats)
@@ -328,6 +339,7 @@ def adjust_menu():
             config.auto_disperse_after_reschedule
         )
         menu_reschedule_set_due_date.setChecked(config.reschedule_set_due_date)
+        menu_advance_ask_days_limit.setChecked(config.advance_days_filter_enabled)
 
 
 @state_did_change.append

@@ -17,6 +17,7 @@ HAS_RATED = "has_rated"
 RESCHEDULE_SET_DUE_DATE = "reschedule-set-due-date"
 SHOW_STEPS_STATS = "show_steps_stats"
 SHOW_TRUE_RETENTION = "show_true_retention"
+ADVANCE_DAYS_FILTER_ENABLED = "advance_days_filter_enabled"
 
 
 def load_config():
@@ -171,4 +172,13 @@ class Config:
     @show_true_retention.setter
     def show_true_retention(self, value):
         self.data[SHOW_TRUE_RETENTION] = value
+        self.save()
+
+    @property
+    def advance_days_filter_enabled(self):
+        return self.data[ADVANCE_DAYS_FILTER_ENABLED]
+
+    @advance_days_filter_enabled.setter
+    def advance_days_filter_enabled(self, value):
+        self.data[ADVANCE_DAYS_FILTER_ENABLED] = value
         self.save()
