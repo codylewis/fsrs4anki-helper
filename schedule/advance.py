@@ -19,15 +19,23 @@ def get_retention_deficit(current_r, desired_r, decay):
     return 1 - (current_r ** (-1 / decay) - 1) / (desired_r ** (-1 / decay) - 1)
 
 
-def get_due_per_day_breakdown(did, num_days=7):
+def fetch_cards_with_deficit(did, max_due_day=None):
+    """One shared query: cards due after today (optionally capped at
+    today + max_due_day), each annotated with its day offset and
+    retention deficit."""
     DM = DeckManager(mw.col)
     if did is not None:
         did_list = ids2str(DM.deck_and_child_ids(did))
 
     today = mw.col.sched.today
+    upper_bound = f"AND due <= {today + max_due_day}" if max_due_day else ""
+
     rows = mw.col.db.all(f"""
         SELECT
+            id,
             due - {today},
+            CASE WHEN odid==0 THEN did ELSE odid END,
+            ivl,
             json_extract(data, '$.s'),
             CASE WHEN odid==0
             THEN {today} - (due - ivl)
@@ -40,16 +48,25 @@ def get_due_per_day_breakdown(did, num_days=7):
         AND json_extract(data, '$.s') IS NOT NULL
         AND json_extract(data, '$.dr') IS NOT NULL
         AND due > {today}
-        AND due <= {today + num_days}
+        {upper_bound}
         AND queue = {QUEUE_TYPE_REV}
         {"AND did IN %s" % did_list if did is not None else ""}
     """)
-    safe_counts = {}
-    for day, stability, elapsed, desired_r, decay in rows:
+
+    cards = []
+    for cid, day_offset, card_did, ivl, stability, elapsed, desired_r, decay in rows:
         current_r = get_current_retention(elapsed, stability, decay)
         deficit = get_retention_deficit(current_r, desired_r, decay)
+        cards.append((cid, day_offset, card_did, ivl, stability, decay, deficit))
+    return cards
+
+
+def get_due_per_day_breakdown(did, num_days=7):
+    cards = fetch_cards_with_deficit(did, max_due_day=num_days)
+    safe_counts = {}
+    for _, day_offset, _, _, _, _, deficit in cards:
         if deficit < SAFE_RETENTION_DEFICIT:
-            safe_counts[day] = safe_counts.get(day, 0) + 1
+            safe_counts[day_offset] = safe_counts.get(day_offset, 0) + 1
 
     lines = []
     running_total = 0
@@ -119,74 +136,19 @@ def advance(did):
                 showWarning(t("advance-days-enter-number"))
             return
 
-    DM = DeckManager(mw.col)
-    if did is not None:
-        did_list = ids2str(DM.deck_and_child_ids(did))
-
-    date_filter = (
-        f"AND due > {mw.col.sched.today} AND due <= {mw.col.sched.today + days_limit}"
-        if days_limit > 0
-        else f"AND due > {mw.col.sched.today}"
-    )
-
-    cards = mw.col.db.all(f"""
-        SELECT 
-            id, 
-            CASE WHEN odid==0
-            THEN did
-            ELSE odid
-            END,
-            ivl,
-            json_extract(data, '$.s'),
-            CASE WHEN odid==0
-            THEN {mw.col.sched.today} - (due - ivl)
-            ELSE {mw.col.sched.today} - (odue - ivl)
-            END,
-            json_extract(data, '$.dr'),
-            COALESCE(json_extract(data, '$.decay'), 0.5)
-        FROM cards
-        WHERE data != ''
-        AND json_extract(data, '$.s') IS NOT NULL
-        AND json_extract(data, '$.dr') IS NOT NULL
-        {date_filter}
-        AND queue = {QUEUE_TYPE_REV}
-        {"AND did IN %s" % did_list if did is not None else ""}
-    """)
+    cards = fetch_cards_with_deficit(did, max_due_day=days_limit or None)
     # x[0]: cid
-    # x[1]: did
-    # x[2]: interval
-    # x[3]: stability
-    # x[4]: elapsed days
-    # x[5]: desired retention
-    # x[6]: decay
-    # x[7]: current retention
-    cards = map(
-        lambda x: (
-            x
-            + [
-                get_current_retention(x[4], x[3], x[6]),
-            ]
-        ),
-        cards,
-    )
+    # x[1]: day offset
+    # x[2]: did
+    # x[3]: interval
+    # x[4]: stability
+    # x[5]: decay
+    # x[6]: retention deficit
 
     # sort by (1 - elapsed_day / scheduled_day)
     # = 1-ln(current retention)/ln(requested retention), -stability (ascending)
-    cards = sorted(
-        cards,
-        key=lambda x: (
-            get_retention_deficit(x[7], x[5], x[6]),
-            -x[3],
-        ),
-    )
-    safe_cnt = len(
-        list(
-            filter(
-                lambda x: get_retention_deficit(x[7], x[5], x[6]) < SAFE_RETENTION_DEFICIT,
-                cards,
-            )
-        )
-    )
+    cards = sorted(cards, key=lambda x: (x[6], -x[4]))
+    safe_cnt = len([c for c in cards if c[6] < SAFE_RETENTION_DEFICIT])
 
     desired_advance_cnt, resp = get_desired_advance_cnt_with_response(
         safe_cnt, did, days_limit
@@ -206,7 +168,7 @@ def advance(did):
     advanced_cards = []
     start_time = time.time()
     undo_entry = mw.col.add_custom_undo_entry(t("advance"))
-    for cid, did, ivl, stability, _, _, decay, _ in cards:
+    for cid, _, card_did, ivl, stability, decay, _ in cards:
         if cnt >= desired_advance_cnt:
             break
 
